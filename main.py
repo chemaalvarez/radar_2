@@ -2,6 +2,7 @@ from flask import Flask
 from flask import request
 import os
 import pandas as pd
+import re
 
 from cryptography.fernet import Fernet
 
@@ -68,10 +69,9 @@ def unico_maximo(df,campo):
 def quita_duplicados(df,campo):
     new_df = df[df.entidad==campo].copy()
     todos = new_df.index
-    new_df.drop_duplicates('valor',keep='first',inplace=True)
-    primeros = new_df.index
+    primeros = new_df.drop_duplicates('valor',keep='first').index
     duplicados = [x for x in todos if x not in primeros]
-    return NER_df.drop(duplicados)
+    return df.drop(duplicados)
 #quita_duplicados(NER_df,'numero_contenedor')
 
 def cuenta_unicos(df,campo):
@@ -105,6 +105,31 @@ def QA_tipo_contenedor(dic,tipo):
         alertas.append(tipo + ':' + 'QA:tipo de contenedor desconocido')
     return respuesta
 #QA_tipo_contenedor(dic_tipo_contenedor,'40HC')
+
+def QA_peso(peso):
+    if type(peso) == str:
+        if re.search('[a-zA-Z]', peso):
+            alertas.append(peso+':'+'QA:peso mal formado')
+            respuesta = peso
+        else:
+            peso = peso.replace(',','')
+            entero = peso.split('.')[0]
+            decimal = peso.split('.')[1][:-3]
+            respuesta = float(entero + '.' + decimal)
+    else:
+        respuesta = peso
+    return respuesta
+#QA_peso('7118.080475040.000')
+
+def QA_numero_contenedor(numero):
+    patron = re.compile("([a-zA-Z]{3})([UJZujz])(\s{0,2})(\d{6})(\d)")
+    if patron.match(numero) == None:
+        alertas.append(numero + ':' + 'QA:numero de contenedor no cuadra con ISO-6346')
+        respuesta = numero
+    else:
+        respuesta = numero
+    return respuesta
+#QA_numero_contenedor('FANU 1705033')
 
 def funcion(row):
     if row.entidad == 'peso_bruto' or row.entidad == 'peso_bruto_total':
