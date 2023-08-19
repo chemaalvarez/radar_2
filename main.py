@@ -213,7 +213,7 @@ for index,row in resultados_df.iterrows():
     resultados_df.loc[index,'filename'] = resultados_df.loc[index,'extracted_metadata']['filename']
     if len(lista_numeros_guia) > 0:
         resultados_df.loc[index,'numero_guia'] = lista_numeros_guia.iloc[0]['valor']
-resultados_df.drop(columns=['result_metadata','metadata','extracted_metadata','table_results_references','document_passages'],inplace=True)
+#resultados_df.drop(columns=['result_metadata','metadata','extracted_metadata','table_results_references','document_passages'],inplace=True)
 
 lista_numeros_guia = [num_guia for num_guia in list(resultados_df.numero_guia) if str(num_guia) != 'nan']
 
