@@ -1,6 +1,5 @@
 from flask import Flask
 from flask import request
-#from flask import json
 import os
 import pandas as pd
 import re
@@ -223,7 +222,7 @@ app = Flask(__name__)
 # set up root route
 @app.route("/")
 def hello_world():
-	return "¡Hola Radar!"
+    return "¡Hola Radar!"
 
 @app.route("/NER_BL", methods=['GET'])
 def NER_BL():
@@ -231,6 +230,8 @@ def NER_BL():
     numero_guia = request.args.get('numero_guia')
     texto = list(resultados_df.loc[resultados_df.numero_guia == numero_guia,'text'].values)
     num_paginas = len(texto)
+    nombre_archivo = resultados_df.loc[resultados_df.numero_guia == numero_guia,'extracted_metadata'].values[0]['filename']
+    id_referencia = nombre_archivo.split('-')[1].split('.')[0]
     entidades = resultados_df.loc[resultados_df.numero_guia == numero_guia,'enriched_text'].values[0][0]['entities']
     # funciones de ajuste
     NER_df = entidades_a_df(entidades)
@@ -246,7 +247,9 @@ def NER_BL():
     data = {'entidades_NER':json.loads(NER_df.to_json(orient='records')),
             'alertas':alertas,
             'num_paginas':num_paginas,
-            'lista_paginas_texto':texto
+            'lista_paginas_texto':texto,
+            'archivo_origen':nombre_archivo,
+            'id_referencia':id_referencia
            }
     response = app.response_class(
         response=json.dumps(data),
@@ -258,5 +261,5 @@ def NER_BL():
 # Get the PORT from environment
 port = os.getenv('PORT', '8080')
 if __name__ == "__main__":
-	app.run(host='0.0.0.0',port=int(port))
+    app.run(host='0.0.0.0',port=int(port))
 
