@@ -1,8 +1,10 @@
 from flask import Flask
 from flask import request
+from flask import json
 import os
 import pandas as pd
 import re
+import json
 
 from cryptography.fernet import Fernet
 
@@ -78,6 +80,14 @@ def cuenta_unicos(df,campo):
     return df[df.entidad == campo].valor.nunique()
 #cuenta_unicos(NER_df,'numero_contenedor')
 
+def cuenta(df,campo):
+    return df.loc[df.entidad == campo,'entidad'].count()
+#cuenta(NER_df,'tipo_contenedor')
+
+def valores(df,campo):
+    return list(df.loc[df.entidad == campo,'valor'])
+#valores(NER_df,'tipo_contenedor')
+
 def mantiene_primeros_n(df,campo,n):
     return df.drop(list(df[df.entidad == campo].index)[n:])
 #mantiene_primeros_n(NER_df,'tipo_contenedor',cuenta_unicos(NER_df,'numero_contenedor'))
@@ -102,14 +112,14 @@ def QA_tipo_contenedor(dic,tipo):
         respuesta = tipo
     else:
         respuesta = tipo
-        alertas.append(tipo + ':' + 'QA:tipo de contenedor desconocido')
+        alertas.append(tipo + ' QA:tipo de contenedor desconocido')
     return respuesta
 #QA_tipo_contenedor(dic_tipo_contenedor,'40HC')
 
 def QA_peso(peso):
     if type(peso) == str:
         if re.search('[a-zA-Z]', peso):
-            alertas.append(peso+':'+'QA:peso mal formado')
+            alertas.append(peso + ' QA:peso mal formado')
             respuesta = peso
         else:
             peso = peso.replace(',','')
@@ -124,14 +134,14 @@ def QA_peso(peso):
 def QA_numero_contenedor(numero):
     patron = re.compile("([a-zA-Z]{3})([UJZujz])(\s{0,2})(\d{6})(\d)")
     if patron.match(numero) == None:
-        alertas.append(numero + ':' + 'QA:numero de contenedor no cuadra con ISO-6346')
+        alertas.append(numero + ' QA:numero de contenedor no cuadra con ISO-6346')
         respuesta = numero
     else:
         respuesta = numero
     return respuesta
 #QA_numero_contenedor('FANU 1705033')
 
-def funcion(row):
+def QA_validaciones(row):
     if row.entidad == 'peso_bruto' or row.entidad == 'peso_bruto_total':
         row.valor = QA_peso(row.valor)
     elif row.entidad == 'numero_contenedor':
@@ -139,6 +149,50 @@ def funcion(row):
     elif row.entidad == 'tipo_contenedor':
         row.valor =  QA_tipo_contenedor(dic_tipo_contenedor,row.valor)
     return row
+#NER_df.apply(lambda row:QA_validaciones(row),axis = 1)
+
+def QA_numerico(df):
+    num_numero_guia = cuenta(df,'numero_guia')
+    num_id_transportista = cuenta(df,'id_transportista')
+    num_fecha_entrada = cuenta(df,'fecha_entrada')
+    num_contenedores = cuenta(df,'numero_contenedor')
+    num_tipos = cuenta(df,'tipo_contenedor')
+    num_pesos = cuenta(df,'peso_bruto')
+    num_peso_total = cuenta(df,'peso_bruto_total')
+    if num_numero_guia < 1:
+        alertas.append('cuadre: no se encontró número de guía')
+    if num_numero_guia > 1:
+        valores_lst = str(valores(df,'numero_guia'))
+        alertas.append(valores_lst + ':' + ' cuadre:se encontraron varios números de guía')
+    if num_id_transportista < 1:
+        alertas.append('cuadre: no se encontró nombre del barco')
+    if num_id_transportista > 1:
+        valores_lst = str(valores(df,'id_transportista'))
+        alertas.append(valores_lst + ':' + 'cuadre:se encontraron varios nombres de barco')
+    if num_fecha_entrada < 1:
+        alertas.append('cuadre: no se encontró fecha de entrada')
+    if num_fecha_entrada > 1:
+        valores_lst = str(valores(df,'fecha_entrada'))
+        alertas.append(valores_lst + ':' + ' cuadre:se encontraron varias fechas de entrada')
+    if num_contenedores < 1:
+        alertas.append('cuadre: no se encontraron numeros de contenedor')
+    if num_tipos < 1:
+        alertas.append('cuadre:se encontraron tipos de contenedor')
+    if num_pesos < 1:
+        alertas.append('cuadre:se encontraron pesos brutos de contenedor')
+    if num_tipos < num_contenedores:
+        alertas.append(str(valores(df,'numero_contenedor'))+str(valores(df,'tipo_contenedor'))+' cuadre:menos tipos de contenedor que contenedores encontrados')
+    if num_pesos < num_contenedores:
+        alertas.append(str(valores(df,'numero_contenedor'))+str(valores(df,'peso_bruto'))+' cuadre:menos pesos de contenedor que contenedores encontrados')
+    if num_peso_total < 1:
+        alertas.append('cuadre:no se encontró peso total del embarque')
+    if num_peso_total > 1:
+        valores_lst = str(valores(df,'peso_bruto_total'))
+        alertas.append(valores_lst + ' cuadre:se encontraron varios pesos brutos totales')
+    if round(sum(valores(df,'peso_bruto'))/sum(valores(df,'peso_bruto_total')),4) != 1.0:
+        alertas.append(str(sum(valores(df,'peso_bruto'))) + ' ' + str(sum(valores(df,'peso_bruto_total'))) + ' cuadre: la suma de los pesos extraídos de los contenedores, no coincide con el peso bruto total extraído')
+    return df
+#NER_df = QA_numerico(NER_df)
 
 alertas = []
 
@@ -172,9 +226,11 @@ app = Flask(__name__)
 def hello_world():
 	return "¡Hola Radar!"
 
-@app.route("/getDocument", methods=['GET'])
+@app.route("/NER_BL", methods=['GET'])
 def getDocument():
 	numero_guia = request.args.get('numero_guia')
+    texto = list(resultados_df.loc[resultados_df.numero_guia == numero_guia,'text'].values)
+    num_paginas = len(texto)
 	entidades = results_df.loc[results_df.numero_guia == numero_guia,'enriched_text'].values[0][0]['entities']
 	# funciones de ajuste
 	NER_df = entidades_a_df(entidades)
@@ -185,7 +241,19 @@ def getDocument():
 	NER_df = quita_duplicados(NER_df,'numero_contenedor')
 	NER_df = mantiene_primeros_n(NER_df,'tipo_contenedor',cuenta_unicos(NER_df,'numero_contenedor'))
 	NER_df = mantiene_primeros_n(NER_df,'peso_bruto',cuenta_unicos(NER_df,'numero_contenedor'))
-	return NER_df.apply(lambda row:funcion(row),axis = 1).to_json()
+    NER_df = NER_df.apply(lambda row:QA_validaciones(row),axis = 1)
+    NER_df = QA_numerico(NER_df)
+    response = app.response_class(
+        data = {'entidades_NER':json.loads(NER_df.to_json(orient='records')),
+                'alertas':alertas,
+                'num_paginas':num_paginas,
+                'lista_paginas_texto':texto
+               }
+        response=json.dumps(data),
+        status=200,
+        mimetype='application/json'
+    )
+    return response
 
 # Get the PORT from environment
 port = os.getenv('PORT', '8080')
