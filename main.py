@@ -141,7 +141,7 @@ def QA_numero_contenedor(numero):
     return respuesta
 #QA_numero_contenedor('FANU 1705033')
 
-def QA_validaciones(row):
+def validaciones(row):
     if row.entidad == 'peso_bruto' or row.entidad == 'peso_bruto_total':
         row.valor = QA_peso(row.valor)
     elif row.entidad == 'numero_contenedor':
@@ -149,9 +149,11 @@ def QA_validaciones(row):
     elif row.entidad == 'tipo_contenedor':
         row.valor =  QA_tipo_contenedor(dic_tipo_contenedor,row.valor)
     return row
-#NER_df.apply(lambda row:QA_validaciones(row),axis = 1)
 
-def QA_numerico(df):
+def QA_validaciones(df,alertas=[]):
+    return df.apply(lambda row:validaciones(row),axis = 1),alertas
+
+def QA_numerico(df,alertas=[]):
     num_numero_guia = cuenta(df,'numero_guia')
     num_id_transportista = cuenta(df,'id_transportista')
     num_fecha_entrada = cuenta(df,'fecha_entrada')
@@ -191,10 +193,8 @@ def QA_numerico(df):
         alertas.append(valores_lst + ' cuadre:se encontraron varios pesos brutos totales')
     if round(sum(valores(df,'peso_bruto'))/sum(valores(df,'peso_bruto_total')),4) != 1.0:
         alertas.append(str(sum(valores(df,'peso_bruto'))) + ' ' + str(sum(valores(df,'peso_bruto_total'))) + ' cuadre: la suma de los pesos extraídos de los contenedores, no coincide con el peso bruto total extraído')
-    return df
+    return df,alertas
 #NER_df = QA_numerico(NER_df)
-
-alertas = []
 
 lista_proyectos = discovery.list_projects().get_result()
 proyecto = lista_proyectos['projects'][1]['project_id']
@@ -205,19 +205,18 @@ lista_documentos = discovery.list_documents(proyecto,coleccion).get_result()
 filtro = ''
 consulta = ''
 resultado = discovery.query(project_id=proyecto,collection_ids=[coleccion],filter=filtro,query=consulta,count=2000).get_result()
-results_df = pd.DataFrame(resultado['results'])
 
-for index,row in results_df.iterrows():
-	entidades = row['enriched_text'][0]['entities']
-	entidades_df = entidades_a_df(entidades)
-	lista_numeros_guia = entidades_df[entidades_df.entidad == 'numero_guia']
-	results_df.loc[index,'filename'] = results_df.loc[index,'extracted_metadata']['filename']
-	if len(lista_numeros_guia) > 0:
-		results_df.loc[index,'numero_guia'] = lista_numeros_guia.iloc[0]['valor']
+resultados_df = pd.DataFrame(resultado['results'])
+for index,row in resultados_df.iterrows():
+    entidades = row['enriched_text'][0]['entities']
+    entidades_df = entidades_a_df(entidades)
+    lista_numeros_guia = entidades_df[entidades_df.entidad == 'numero_guia']
+    resultados_df.loc[index,'filename'] = resultados_df.loc[index,'extracted_metadata']['filename']
+    if len(lista_numeros_guia) > 0:
+        resultados_df.loc[index,'numero_guia'] = lista_numeros_guia.iloc[0]['valor']
+resultados_df.drop(columns=['result_metadata','metadata','extracted_metadata','table_results_references','document_passages'],inplace=True)
 
-results_df.drop(columns=['result_metadata','metadata','text','extracted_metadata','table_results_references','document_passages'],inplace=True)
-lista_numeros_guia = [num_guia for num_guia in list(results_df.numero_guia) if str(num_guia) != 'nan']
-
+lista_numeros_guia = [num_guia for num_guia in list(resultados_df.numero_guia) if str(num_guia) != 'nan']
 
 app = Flask(__name__)
 
@@ -227,28 +226,29 @@ def hello_world():
 	return "¡Hola Radar!"
 
 @app.route("/NER_BL", methods=['GET'])
-def getDocument():
-	numero_guia = request.args.get('numero_guia')
+def NER_BL():
+    alertas = []
+    numero_guia = request.args.get('numero_guia')
     texto = list(resultados_df.loc[resultados_df.numero_guia == numero_guia,'text'].values)
     num_paginas = len(texto)
-	entidades = results_df.loc[results_df.numero_guia == numero_guia,'enriched_text'].values[0][0]['entities']
-	# funciones de ajuste
-	NER_df = entidades_a_df(entidades)
-	NER_df = unico_primero(NER_df,'numero_guia')
-	NER_df = unico_primero(NER_df,'id_transportista')
-	NER_df = unico_primero(NER_df,'fecha_entrada')
-	NER_df = unico_maximo(NER_df,'peso_bruto_total')
-	NER_df = quita_duplicados(NER_df,'numero_contenedor')
-	NER_df = mantiene_primeros_n(NER_df,'tipo_contenedor',cuenta_unicos(NER_df,'numero_contenedor'))
-	NER_df = mantiene_primeros_n(NER_df,'peso_bruto',cuenta_unicos(NER_df,'numero_contenedor'))
-    NER_df = NER_df.apply(lambda row:QA_validaciones(row),axis = 1)
-    NER_df = QA_numerico(NER_df)
+    entidades = resultados_df.loc[resultados_df.numero_guia == numero_guia,'enriched_text'].values[0][0]['entities']
+    # funciones de ajuste
+    NER_df = entidades_a_df(entidades)
+    NER_df = unico_primero(NER_df,'numero_guia')
+    NER_df = unico_primero(NER_df,'id_transportista')
+    NER_df = unico_primero(NER_df,'fecha_entrada')
+    NER_df = unico_maximo(NER_df,'peso_bruto_total')
+    NER_df = quita_duplicados(NER_df,'numero_contenedor')
+    NER_df = mantiene_primeros_n(NER_df,'tipo_contenedor',cuenta_unicos(NER_df,'numero_contenedor'))
+    NER_df = mantiene_primeros_n(NER_df,'peso_bruto',cuenta_unicos(NER_df,'numero_contenedor'))
+    NER_df,alertas = QA_validaciones(NER_df,alertas)
+    NER_df,alertas = QA_numerico(NER_df,alertas)
+    data = {'entidades_NER':json.loads(NER_df.to_json(orient='records')),
+            'alertas':alertas,
+            'num_paginas':num_paginas,
+            'lista_paginas_texto':texto
+           }
     response = app.response_class(
-        data = {'entidades_NER':json.loads(NER_df.to_json(orient='records')),
-                'alertas':alertas,
-                'num_paginas':num_paginas,
-                'lista_paginas_texto':texto
-               }
         response=json.dumps(data),
         status=200,
         mimetype='application/json'
