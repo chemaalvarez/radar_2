@@ -2,5 +2,4 @@ Flask
 pandas
 ibm-watson
 cryptography
-re
 json
