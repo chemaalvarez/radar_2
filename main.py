@@ -195,7 +195,13 @@ def QA_numerico(df,alertas=[]):
     if num_peso_total > 1:
         valores_lst = str(valores(df,'peso_bruto_total'))
         alertas.append(valores_lst + ' cuadre:se encontraron varios pesos brutos totales')
-    if round(sum(valores(df,'peso_bruto'))/sum(valores(df,'peso_bruto_total')),4) != 1.0:
+    try:
+        ratio = round(sum(valores(df,'peso_bruto'))/sum(valores(df,'peso_bruto_total')),4)
+    except:
+        ratio = 0.0
+    else:
+        pass
+    if ratio != 1.0:
         alertas.append(str(sum(valores(df,'peso_bruto'))) + ' ' + str(sum(valores(df,'peso_bruto_total'))) + ' cuadre: la suma de los pesos extraídos de los contenedores, no coincide con el peso bruto total extraído')
     return df,alertas
 #QA_numerico(NER_df)
