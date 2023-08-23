@@ -4,7 +4,6 @@ import os
 import pandas as pd
 import re
 import json
-
 from cryptography.fernet import Fernet
 
 def encrypt(message: bytes, key: bytes) -> bytes:
@@ -85,37 +84,13 @@ def cuenta(df,campo):
 
 def valores(df,campo):
     return list(df.loc[df.entidad == campo,'valor'])
-#valores(NER_df,'tipo_contenedor')
+#valores(NER_df,'peso_bruto_total')
 
 def mantiene_primeros_n(df,campo,n):
     return df.drop(list(df[df.entidad == campo].index)[n:])
 #mantiene_primeros_n(NER_df,'tipo_contenedor',cuenta_unicos(NER_df,'numero_contenedor'))
 
-def QA_peso(peso):
-    if type(peso) == str:
-        if re.search('[a-zA-Z]', peso):
-            alertas.append(peso+':'+'QA:peso mal formado')
-            respuesta = peso
-        else:
-            peso = peso.replace(',','')
-            entero = peso.split('.')[0]
-            decimal = peso.split('.')[1][:-3]
-            respuesta = float(entero + '.' + decimal)
-    else:
-        respuesta = peso
-    return respuesta
-#QA_peso('7118.080475040.000')
-
-def QA_tipo_contenedor(dic,tipo):
-    if tipo in dic:
-        respuesta = tipo
-    else:
-        respuesta = tipo
-        alertas.append(tipo + ' QA:tipo de contenedor desconocido')
-    return respuesta
-#QA_tipo_contenedor(dic_tipo_contenedor,'40HC')
-
-def QA_peso(peso):
+def QA_peso(peso,alertas=[]):
     if type(peso) == str:
         if re.search('[a-zA-Z]', peso):
             alertas.append(peso + ' QA:peso mal formado')
@@ -127,30 +102,60 @@ def QA_peso(peso):
             respuesta = float(entero + '.' + decimal)
     else:
         respuesta = peso
-    return respuesta
+    return respuesta,alertas
 #QA_peso('7118.080475040.000')
 
-def QA_numero_contenedor(numero):
+def QA_tipo_contenedor(dic,tipo,alertas=[]):
+    if tipo in dic:
+        respuesta = tipo
+    else:
+        respuesta = tipo
+        alertas.append(tipo + ' QA:tipo de contenedor desconocido')
+    return respuesta,alertas
+#QA_tipo_contenedor(dic_tipo_contenedor,'40HC')
+
+def QA_peso(peso,alertas=[]):
+    if type(peso) == str:
+        if re.search('[a-zA-Z]', peso):
+            alertas.append(peso + ' QA:peso mal formado')
+            respuesta = peso
+        else:
+            peso = peso.replace(',','')
+            entero = peso.split('.')[0]
+            decimal = peso.split('.')[1][:-3]
+            respuesta = float(entero + '.' + decimal)
+    else:
+        respuesta = peso
+    return respuesta,alertas
+#QA_peso('7118.080475040.000')
+
+def QA_numero_contenedor(numero,alertas=[]):
     patron = re.compile("([a-zA-Z]{3})([UJZujz])(\s{0,2})(\d{6})(\d)")
     if patron.match(numero) == None:
         alertas.append(numero + ' QA:numero de contenedor no cuadra con ISO-6346')
         respuesta = numero
     else:
         respuesta = numero
-    return respuesta
+    return respuesta,alertas
 #QA_numero_contenedor('FANU 1705033')
 
-def validaciones(row):
+def validaciones(row,alertas=[]):
     if row.entidad == 'peso_bruto' or row.entidad == 'peso_bruto_total':
-        row.valor = QA_peso(row.valor)
+        row.valor,alertas_campo = QA_peso(row.valor)
+        alertas += alertas_campo
     elif row.entidad == 'numero_contenedor':
-        row.valor =  QA_numero_contenedor(row.valor)
+        row.valor,alertas_campo =  QA_numero_contenedor(row.valor)
+        alertas += alertas_campo
     elif row.entidad == 'tipo_contenedor':
-        row.valor =  QA_tipo_contenedor(dic_tipo_contenedor,row.valor)
-    return row
+        row.valor,alertas_campo =  QA_tipo_contenedor(dic_tipo_contenedor,row.valor)
+        alertas += alertas_campo
+    return row,alertas
 
 def QA_validaciones(df,alertas=[]):
-    return df.apply(lambda row:validaciones(row),axis = 1),alertas
+    for index,row in df.iterrows():
+        row, alertas = validaciones(row,alertas)
+        df.loc[index] = row
+    return df,alertas
 
 def QA_numerico(df,alertas=[]):
     num_numero_guia = cuenta(df,'numero_guia')
@@ -193,12 +198,13 @@ def QA_numerico(df,alertas=[]):
     if round(sum(valores(df,'peso_bruto'))/sum(valores(df,'peso_bruto_total')),4) != 1.0:
         alertas.append(str(sum(valores(df,'peso_bruto'))) + ' ' + str(sum(valores(df,'peso_bruto_total'))) + ' cuadre: la suma de los pesos extraídos de los contenedores, no coincide con el peso bruto total extraído')
     return df,alertas
-#NER_df = QA_numerico(NER_df)
+#QA_numerico(NER_df)
 
 lista_proyectos = discovery.list_projects().get_result()
 proyecto = lista_proyectos['projects'][1]['project_id']
 lista_colecciones = discovery.list_collections(proyecto).get_result()
-coleccion = lista_colecciones['collections'][1]['collection_id']
+coleccion = lista_colecciones['collections'][0]['collection_id']
+#print(proyecto, coleccion)
 lista_documentos = discovery.list_documents(proyecto,coleccion).get_result()
 
 filtro = ''
